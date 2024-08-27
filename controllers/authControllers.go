@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"database/sql"
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -9,6 +8,7 @@ import (
 	"github.com/samdgea/gin-boilerplate/models"
 	"github.com/samdgea/gin-boilerplate/utils"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 	"net/http"
 	"os"
 	"time"
@@ -29,8 +29,9 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if err = db.DB.QueryRow("SELECT id, username, password, isActive FROM users WHERE username = $1", loginRequest.Username).Scan(&user.Id, &user.Username, &user.Password, &user.IsActive); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	// Use Gorm to find the user by username
+	if err = db.DB.Where("username = ?", loginRequest.Username).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			utils.ThrowError(c, http.StatusUnauthorized, "Incorrect credentials")
 		} else {
 			utils.ThrowError(c, http.StatusInternalServerError, err.Error())

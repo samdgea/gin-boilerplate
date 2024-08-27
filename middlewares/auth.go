@@ -1,13 +1,13 @@
 package middlewares
 
 import (
-	"database/sql"
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/samdgea/gin-boilerplate/db"
 	"github.com/samdgea/gin-boilerplate/models"
 	"github.com/samdgea/gin-boilerplate/utils"
+	"gorm.io/gorm"
 	"net/http"
 	"os"
 	"strings"
@@ -48,10 +48,10 @@ func IsAuth(c *gin.Context) {
 		return
 	}
 
-	userId := decodeToken.Claims.(jwt.MapClaims)["userId"].(string)
+	userId := decodeToken.Claims.(jwt.MapClaims)["userId"].(float64)
 
-	if err = db.DB.QueryRow("SELECT id, username, password, name, role, is_active, created_at, updated_at FROM users WHERE id = $1", userId).Scan(&user.Id, &user.Username, &user.Password, &user.FirstName, &user.LastName, &user.IsActive); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	if err = db.DB.First(&user, int(userId)).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			utils.ThrowError(c, http.StatusUnauthorized, "User not found")
 		} else {
 			utils.ThrowError(c, http.StatusInternalServerError, "Failed to get user data")
