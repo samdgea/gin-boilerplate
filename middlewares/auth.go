@@ -48,9 +48,9 @@ func IsAuth(c *gin.Context) {
 		return
 	}
 
-	userId := decodeToken.Claims.(jwt.MapClaims)["userId"].(float64)
+	userId := decodeToken.Claims.(jwt.MapClaims)["userId"].(string)
 
-	if err = db.DB.First(&user, int(userId)).Error; err != nil {
+	if err = db.DB.First(&user, "id = ?", userId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			utils.ThrowError(c, http.StatusUnauthorized, "User not found")
 		} else {

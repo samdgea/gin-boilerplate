@@ -6,6 +6,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/samdgea/gin-boilerplate/db"
 	"github.com/samdgea/gin-boilerplate/models"
+	"github.com/samdgea/gin-boilerplate/structs"
 	"github.com/samdgea/gin-boilerplate/utils"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -53,7 +54,7 @@ func Login(c *gin.Context) {
 
 	sign := jwt.New(jwt.SigningMethodHS256)
 	claims := sign.Claims.(jwt.MapClaims)
-	claims["userId"] = user.Id
+	claims["userId"] = user.ID
 	claims["exp"] = time.Now().Add(time.Hour * 24).Unix() // 1 Day
 
 	token, err := sign.SignedString([]byte(os.Getenv("JWT_SECRET")))
@@ -62,13 +63,31 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"error":   false,
-		"message": "Login Success",
-		"data": gin.H{
+	response := structs.SuccessMessage{
+		Error:   false,
+		Message: "Login Success",
+		Data: gin.H{
 			"token":   token,
 			"type":    "Bearer",
 			"expired": "1 Day",
 		},
-	})
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func Me(c *gin.Context) {
+	user := c.MustGet("user").(models.UserModel)
+	userId := c.GetString("userId")
+
+	response := structs.SuccessMessage{
+		Error:   false,
+		Message: "Success",
+		Data: gin.H{
+			"userId":   userId,
+			"fullName": user.FirstName + " " + user.LastName,
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }

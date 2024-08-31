@@ -18,6 +18,12 @@ func main() {
 	}
 
 	r := gin.Default()
+
+	if isProd != "true" {
+		r.ForwardedByClientIP = true
+		_ = r.SetTrustedProxies([]string{"127.0.0.1", "localhost"})
+	}
+
 	r.Use(middlewares.CORS())
 
 	// API routing
