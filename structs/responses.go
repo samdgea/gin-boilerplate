@@ -1,9 +1,20 @@
 package structs
 
-import "github.com/gin-gonic/gin"
-
-type SuccessMessage struct {
+type MessageResponse struct {
 	Error   bool   `json:"error"`
 	Message string `json:"message"`
-	Data    gin.H  `json:"data"`
+}
+
+type DefaultResponse[T any] struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Data    T      `json:"data"`
+}
+
+type BearerStruct struct {
+	UserId       string `json:"userId"`
+	Type         string `json:"type"`
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	Exp          string `json:"expired"`
 }

@@ -8,6 +8,7 @@ import (
 
 func SetupAuthRoutes(router *gin.RouterGroup) {
 	router.POST("/login", controllers.Login)
+	router.POST("/refresh-token", controllers.RefreshToken)
 
 	router.Use(middlewares.IsAuth).GET("/me", controllers.Me)
 }
