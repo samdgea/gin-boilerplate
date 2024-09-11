@@ -11,4 +11,5 @@ func SetupAuthRoutes(router *gin.RouterGroup) {
 	router.POST("/refresh-token", controllers.RefreshToken)
 
 	router.Use(middlewares.IsAuth).GET("/me", controllers.Me)
+	router.Use(middlewares.IsAuth).POST("/logout", controllers.Logout)
 }

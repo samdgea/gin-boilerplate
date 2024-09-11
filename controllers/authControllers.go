@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -57,7 +58,15 @@ func Login(c *gin.Context) {
 	accessToken := jwt.New(jwt.SigningMethodHS256)
 	atClaims := accessToken.Claims.(jwt.MapClaims)
 	atClaims["userId"] = user.ID
+	atClaims["tokenId"] = uuid.New()
 	atClaims["exp"] = time.Now().Add(time.Hour * 1).Unix() // 1 Hour
+
+	// Add entry to TokenModel
+	db.DB.Create(&models.TokenModel{
+		UserID:    atClaims["userId"].(uuid.UUID),
+		TokenID:   atClaims["tokenId"].(uuid.UUID),
+		ExpiresAt: time.Unix(atClaims["exp"].(int64), 0),
+	})
 
 	aToken, err := accessToken.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
@@ -76,7 +85,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	response := structs.DefaultResponse[structs.BearerStruct]{
+	response := structs.DefaultResponseWithData[structs.BearerStruct]{
 		Error:   false,
 		Message: "Login Success",
 		Data: structs.BearerStruct{
@@ -130,7 +139,15 @@ func RefreshToken(c *gin.Context) {
 	accessToken := jwt.New(jwt.SigningMethodHS256)
 	newAccessToken := accessToken.Claims.(jwt.MapClaims)
 	newAccessToken["userId"] = user.ID
+	newAccessToken["tokenId"] = uuid.New()
 	newAccessToken["exp"] = time.Now().Add(time.Hour * 1).Unix()
+
+	// Add entry to TokenModel
+	db.DB.Create(&models.TokenModel{
+		UserID:    newAccessToken["userId"].(uuid.UUID),
+		TokenID:   newAccessToken["tokenId"].(uuid.UUID),
+		ExpiresAt: time.Unix(newAccessToken["exp"].(int64), 0),
+	})
 
 	aToken, err := accessToken.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
@@ -138,7 +155,7 @@ func RefreshToken(c *gin.Context) {
 		return
 	}
 
-	response := structs.DefaultResponse[structs.BearerStruct]{
+	response := structs.DefaultResponseWithData[structs.BearerStruct]{
 		Error:   false,
 		Message: "New Access Token has been issued",
 		Data: structs.BearerStruct{
@@ -166,11 +183,48 @@ func Me(c *gin.Context) {
 		FullName: user.FirstName + " " + user.LastName,
 	}
 
-	response := structs.DefaultResponse[DataResponse]{
+	response := structs.DefaultResponseWithData[DataResponse]{
 		Error:   false,
 		Message: "Success",
 		Data:    data,
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func Logout(c *gin.Context) {
+	var token string
+	var tokenModel models.TokenModel
+
+	token = c.GetHeader("Authorization")
+	header := strings.Split(token, " ")
+
+	decodeToken, err := jwt.Parse(header[1], func(token *jwt.Token) (interface{}, error) {
+		return []byte(os.Getenv("JWT_SECRET")), nil
+	})
+	if err != nil {
+		utils.ThrowError(c, http.StatusUnauthorized, "Invalid Token")
+		c.Abort()
+		return
+	}
+
+	tokenId := decodeToken.Claims.(jwt.MapClaims)["tokenId"].(string)
+
+	if err = db.DB.First(&tokenModel, "token_id = ?", tokenId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.ThrowError(c, http.StatusUnauthorized, "Access Token Session was not found")
+		} else {
+			utils.ThrowError(c, http.StatusInternalServerError, "Failed to get Access Token Session")
+		}
+		c.Abort()
+		return
+	}
+
+	// Revoke Access Token
+	db.DB.Model(&tokenModel).Update("IsActive", false)
+
+	c.JSON(http.StatusOK, structs.DefaultResponseMessageOnly{
+		Error:   false,
+		Message: "Access Token has been revoked successfully",
+	})
 }

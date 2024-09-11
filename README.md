@@ -107,7 +107,7 @@ To get a local copy up and running follow these simple example steps.
 
 1. Clone the repo
    ```sh
-   git clone https://github.com/samdgea/gin-boilerplate.git
+   git clone https://github.com/samdgea/gin-boilerplate.git <your-project-name>
    ```
 2. Duplicate `.env.example` and rename it to `.env` and fill in the necessary details
    ```dotenv

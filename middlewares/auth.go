@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func IsAuth(c *gin.Context) {
 	var token string
 	var user models.UserModel
+	var tokenModel models.TokenModel
 
 	token = c.GetHeader("Authorization")
 	if token == "" {
@@ -49,6 +51,7 @@ func IsAuth(c *gin.Context) {
 	}
 
 	userId := decodeToken.Claims.(jwt.MapClaims)["userId"].(string)
+	tokenId := decodeToken.Claims.(jwt.MapClaims)["tokenId"].(string)
 
 	if err = db.DB.First(&user, "id = ?", userId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -56,6 +59,26 @@ func IsAuth(c *gin.Context) {
 		} else {
 			utils.ThrowError(c, http.StatusInternalServerError, "Failed to get user data")
 		}
+		c.Abort()
+		return
+	}
+
+	if err = db.DB.First(&tokenModel, "user_id = ? AND token_id = ?", userId, tokenId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.ThrowError(c, http.StatusUnauthorized, "Incorrect credentials")
+		} else {
+			utils.ThrowError(c, http.StatusInternalServerError, err.Error())
+		}
+		c.Abort()
+		return
+	}
+
+	currentTime := time.Now()
+
+	if !tokenModel.IsActive || currentTime.After(tokenModel.ExpiresAt) {
+		db.DB.Model(&tokenModel).Update("IsActive", false)
+
+		utils.ThrowError(c, http.StatusUnauthorized, "Access Token is revoked or expired")
 		c.Abort()
 		return
 	}

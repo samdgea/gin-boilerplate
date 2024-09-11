@@ -13,11 +13,21 @@ type BaseModel struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
 
-func (base *BaseModel) BeforeCreate(tx *gorm.DB) (err error) {
+func (base *BaseModel) BeforeCreate(*gorm.DB) (err error) {
 	u, err := uuid.NewUUID()
 	if err != nil {
 		return err
 	}
 	base.ID = u
 	return
+}
+
+func MigrateModels(db *gorm.DB) error {
+	if err := db.AutoMigrate(&UserModel{}); err != nil {
+		return err
+	}
+	if err := db.AutoMigrate(&TokenModel{}); err != nil {
+		return err
+	}
+	return nil
 }

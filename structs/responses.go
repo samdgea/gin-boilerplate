@@ -5,10 +5,15 @@ type MessageResponse struct {
 	Message string `json:"message"`
 }
 
-type DefaultResponse[T any] struct {
+type DefaultResponseWithData[T any] struct {
 	Error   bool   `json:"error"`
 	Message string `json:"message"`
 	Data    T      `json:"data"`
+}
+
+type DefaultResponseMessageOnly struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
 }
 
 type BearerStruct struct {

@@ -41,7 +41,7 @@ func InitPostgres() {
 		log.Fatal("Postgres Error ping: ", err)
 	}
 
-	err = models.MigrateUserModel(DB)
+	err = models.MigrateModels(DB)
 	if err != nil {
 		log.Fatal("Postgres Error migrate: ", err)
 	}
