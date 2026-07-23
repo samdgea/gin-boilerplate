@@ -2,11 +2,12 @@ package db
 
 import (
 	"fmt"
-	"gorm.io/driver/postgres"
 	"log"
+	"net/url"
 	"os"
 
 	"github.com/samdgea/gin-boilerplate/models"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -21,11 +22,12 @@ func InitPostgres() {
 	password := os.Getenv("POSTGRES_PASSWORD")
 	dbname := os.Getenv("POSTGRES_DB")
 
-	//dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable", host, user, password, dbname, port)
-	//fmt.Println(dsn)
+	// URL format avoids lib/pq parsing bugs with empty password in key=value format
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		url.QueryEscape(user), url.QueryEscape(password), host, port, dbname)
 
 	DB, err = gorm.Open(postgres.New(postgres.Config{
-		DSN: fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable", host, user, password, dbname, port),
+		DSN: dsn,
 	}), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Postgres connection error: ", err)
