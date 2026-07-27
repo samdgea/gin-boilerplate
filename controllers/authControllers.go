@@ -18,6 +18,61 @@ import (
 	"time"
 )
 
+func Register(c *gin.Context) {
+	type RegisterRequest struct {
+		FirstName       string `json:"first_name" binding:"required"`
+		LastName        string `json:"last_name" binding:"required"`
+		Username        string `json:"username" binding:"required"`
+		Password        string `json:"password" binding:"required"`
+		VerifyPassword  string `json:"verify_password" binding:"required"`
+	}
+
+	var req RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ThrowError(c, http.StatusBadRequest, "Invalid Request")
+		return
+	}
+
+	if req.Password != req.VerifyPassword {
+		utils.ThrowError(c, http.StatusBadRequest, "Passwords do not match")
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		utils.ThrowError(c, http.StatusInternalServerError, "Failed to hash password")
+		return
+	}
+
+	// Check if username already exists
+	var existingUser models.UserModel
+	if err := db.DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
+		utils.ThrowError(c, http.StatusBadRequest, "Username already exists")
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		utils.ThrowError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	user := models.UserModel{
+		Username:  req.Username,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		IsActive:  true,
+		Password:  string(hashedPassword),
+	}
+
+	if err := db.DB.Create(&user).Error; err != nil {
+		utils.ThrowError(c, http.StatusInternalServerError, "Failed to create user")
+		return
+	}
+
+	c.JSON(http.StatusCreated, structs.DefaultResponseMessageOnly{
+		Error:   false,
+		Message: "User registered successfully",
+	})
+}
+
 func Login(c *gin.Context) {
 	type LoginRequest struct {
 		Username string `json:"userName" binding:"required"`
@@ -77,7 +132,15 @@ func Login(c *gin.Context) {
 	refreshToken := jwt.New(jwt.SigningMethodHS256)
 	rtClaims := refreshToken.Claims.(jwt.MapClaims)
 	rtClaims["userId"] = user.ID
+	rtClaims["tokenId"] = uuid.New()
 	rtClaims["exp"] = time.Now().Add(time.Hour * 24).Unix() // 24 Hours
+
+	// Add refresh token entry to TokenModel
+	db.DB.Create(&models.TokenModel{
+		UserID:    rtClaims["userId"].(uuid.UUID),
+		TokenID:   rtClaims["tokenId"].(uuid.UUID),
+		ExpiresAt: time.Unix(rtClaims["exp"].(int64), 0),
+	})
 
 	rToken, err := refreshToken.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
@@ -124,17 +187,46 @@ func RefreshToken(c *gin.Context) {
 		return
 	}
 
-	if claims, ok := decodeToken.Claims.(jwt.MapClaims); ok && decodeToken.Valid {
-		if err = db.DB.First(&user, "id = ?", claims["userId"]).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				utils.ThrowError(c, http.StatusUnauthorized, "User not found")
-			} else {
-				utils.ThrowError(c, http.StatusInternalServerError, "Failed to get user data")
-			}
-			c.Abort()
-			return
-		}
+	claims, ok := decodeToken.Claims.(jwt.MapClaims)
+	if !ok || !decodeToken.Valid {
+		utils.ThrowError(c, http.StatusUnauthorized, "Invalid Token Claims")
+		c.Abort()
+		return
 	}
+
+	userId := claims["userId"].(string)
+	tokenIdRaw, hasTokenId := claims["tokenId"]
+	if !hasTokenId {
+		utils.ThrowError(c, http.StatusUnauthorized, "Invalid Token Structure")
+		c.Abort()
+		return
+	}
+
+	var refreshTokenModel models.TokenModel
+	if err = db.DB.First(&refreshTokenModel, "user_id = ? AND token_id = ?", userId, tokenIdRaw).Error; err != nil {
+		utils.ThrowError(c, http.StatusUnauthorized, "Refresh Token not found or revoked")
+		c.Abort()
+		return
+	}
+
+	if !refreshTokenModel.IsActive || time.Now().After(refreshTokenModel.ExpiresAt) {
+		utils.ThrowError(c, http.StatusUnauthorized, "Refresh Token is expired or revoked")
+		c.Abort()
+		return
+	}
+
+	if err = db.DB.First(&user, "id = ?", userId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.ThrowError(c, http.StatusUnauthorized, "User not found")
+		} else {
+			utils.ThrowError(c, http.StatusInternalServerError, "Failed to get user data")
+		}
+		c.Abort()
+		return
+	}
+
+	// Revoke current Refresh Token
+	db.DB.Model(&refreshTokenModel).Update("IsActive", false)
 
 	accessToken := jwt.New(jwt.SigningMethodHS256)
 	newAccessToken := accessToken.Claims.(jwt.MapClaims)
@@ -142,7 +234,7 @@ func RefreshToken(c *gin.Context) {
 	newAccessToken["tokenId"] = uuid.New()
 	newAccessToken["exp"] = time.Now().Add(time.Hour * 1).Unix()
 
-	// Add entry to TokenModel
+	// Save new Access Token session
 	db.DB.Create(&models.TokenModel{
 		UserID:    newAccessToken["userId"].(uuid.UUID),
 		TokenID:   newAccessToken["tokenId"].(uuid.UUID),
@@ -155,14 +247,34 @@ func RefreshToken(c *gin.Context) {
 		return
 	}
 
+	// Generate new Refresh Token
+	newRefreshToken := jwt.New(jwt.SigningMethodHS256)
+	newRtClaims := newRefreshToken.Claims.(jwt.MapClaims)
+	newRtClaims["userId"] = user.ID
+	newRtClaims["tokenId"] = uuid.New()
+	newRtClaims["exp"] = time.Now().Add(time.Hour * 24).Unix()
+
+	// Save new Refresh Token session
+	db.DB.Create(&models.TokenModel{
+		UserID:    newRtClaims["userId"].(uuid.UUID),
+		TokenID:   newRtClaims["tokenId"].(uuid.UUID),
+		ExpiresAt: time.Unix(newRtClaims["exp"].(int64), 0),
+	})
+
+	rToken, err := newRefreshToken.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	if err != nil {
+		utils.ThrowError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	response := structs.DefaultResponseWithData[structs.BearerStruct]{
 		Error:   false,
-		Message: "New Access Token has been issued",
+		Message: "New Access Token and Refresh Token issued",
 		Data: structs.BearerStruct{
 			UserId:       user.ID.String(),
 			Type:         "Bearer",
 			AccessToken:  aToken,
-			RefreshToken: tokenReq.RefreshToken,
+			RefreshToken: rToken,
 			Exp:          time.Unix(newAccessToken["exp"].(int64), 0).Format(time.RFC1123),
 		},
 	}

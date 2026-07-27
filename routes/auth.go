@@ -7,6 +7,7 @@ import (
 )
 
 func SetupAuthRoutes(router *gin.RouterGroup) {
+	router.POST("/register", controllers.Register)
 	router.POST("/login", controllers.Login)
 	router.POST("/refresh-token", controllers.RefreshToken)
 
